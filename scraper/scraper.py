@@ -6,6 +6,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from bs4 import BeautifulSoup
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from scraper.utils.web_driver_factory import get_chrome_web_driver, get_firefox_web_driver
 from .models import BusinessListing
@@ -19,30 +20,54 @@ def scrape(headless, count, skip):
 
     
 def scrape_data(headless, count, skip):
-    driver = get_firefox_web_driver(headless)
-    wait = WebDriverWait(driver, 10)
+    # main_driver = get_firefox_web_driver(headless)
+    main_driver = get_chrome_web_driver(headless)
+
+    wait = WebDriverWait(main_driver, 10)
 
     element_list = []
     try:
-        driver.get("https://www.bizbuysell.com/buy/")
+        main_driver.get("https://www.bizbuysell.com/buy/")
         wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "a.diamond")))
-        element_list = driver.find_elements(By.CSS_SELECTOR, "a.diamond")
-        log.info('Number of Listings found: %d', len(element_list))
+        element_list = main_driver.find_elements(By.CSS_SELECTOR, "a.diamond")
+        log.info('Number of Listings found: %s', len(element_list))
+
         web_listings = extract_listing_details(element_list)
+
         if skip > len(web_listings):
          skip = 0
         web_listings = web_listings[skip:]
         business_listings = []
-        for listing in web_listings:
-           business_listings.append(extract_seller_details(listing, driver, wait))
-   
-           if len(business_listings) >= count:
-            break
+
+        # 🔥 Multithreading
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            limited_listings = web_listings[:min(count, len(web_listings))]
+            futures = [executor.submit(extract_seller_details_threaded, listing, headless) for listing in limited_listings]
+
+            for future in as_completed(futures):
+                try:
+                  result = future.result()
+                  if result and result.description:
+                   business_listings.append(result)
+                  log.info("Lenght of new list %s", len(business_listings))
+                except Exception as e:
+                    log.error(f"Error in thread: {e}") 
     finally:
-        driver.quit()
+        main_driver.quit()
 
     
     return business_listings
+
+def extract_seller_details_threaded(listing, headless=True):
+    driver = get_chrome_web_driver(headless)
+    # driver = get_firefox_web_driver(headless)
+
+    wait = WebDriverWait(driver, 10)
+
+    try:
+        return extract_seller_details(listing, driver, wait)
+    finally:
+        driver.quit()
 
 def extract_seller_details(listing, driver, wait):
     try:
@@ -70,7 +95,7 @@ def extract_seller_details(listing, driver, wait):
                 By.CSS_SELECTOR, "#contactSellerForm > div:nth-child(10) > div:nth-child(1) > div:nth-child(1)"
                 
             )))
-            log.info('Seller Name without trim %d', seller_name_elem.text)
+            log.info('Seller Name without trim %s', seller_name_elem.text)
             listing.seller_name = seller_name_elem.text.replace("Listed By:", "").strip()
         except TimeoutException as te:
             print(f"[!] Timeout getting seller name for {listing.name}: {te}")
@@ -104,7 +129,6 @@ def extract_seller_details(listing, driver, wait):
         detailed_info = ""
         for d, v in zip(details, values):
             detailed_info += f"{d.get_text()} {v.get_text()}\n"
-        # listingdetailed_info = detailed_info
 
         listing.blocked = False
         print(f"[✓] Extracted seller info for: {listing.name}")
@@ -123,32 +147,16 @@ def get_listings(headless):
         driver.get("https://www.bizbuysell.com/buy/")
         wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "a.diamond")))
         element_list = driver.find_elements(By.CSS_SELECTOR, "a.diamond")
-        log.info('Number of Listings found: %d', len(element_list))
+        log.info('Number of Listings found: %s', len(element_list))
         return extract_listing_details(element_list)
         
     finally:
         driver.quit()
 
 def extract_listing_details(element_list):
-    # options = Options()
-    # # options.add_argument("--headless")  # run in background
-    # options.add_argument("--disable-gpu")
-
-    # driver = webdriver.Chrome(options=options)
-    # driver = get_firefox_web_driver()
-    # wait = WebDriverWait(driver, 10)
-
     business_listing = []
 
     try:
-        # driver.get("https://www.bizbuysell.com/buy/")
-        # wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "a.diamond")))
-        # listing_elements = driver.find_elements(By.CSS_SELECTOR, "a.diamond")
-        # listing_obj = BusinessListing()
-        # listing_obj.url = listing_url
-        # listing_obj.listing_id = listing_id
-        # listing_obj.contact_button_id = contact_button_id
-        # business_listing.append(listing_obj)
         
         for listing in element_list:
             try:
