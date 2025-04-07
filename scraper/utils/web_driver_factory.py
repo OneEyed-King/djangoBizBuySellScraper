@@ -6,6 +6,7 @@ from selenium.webdriver.firefox.service import Service
 from selenium.webdriver import FirefoxOptions
 import asyncio
 from camoufox.async_api import AsyncCamoufox 
+import random
 
 
 def get_chrome_web_driver(headless):
@@ -33,9 +34,15 @@ async def get_camoufox_browser(headless, proxy=None):
     """
     Initializes AsyncCamoufox browser with optional proxy.
     """
+    random_proxy = random.choice(PROXIES).split(':')
+
     return await AsyncCamoufox(
         headless=headless,
-        proxy=proxy,  # proxy format: {'server': ..., 'username': ..., 'password': ...}
+        proxy={
+            'server': random_proxy[0]+':'+random_proxy[1],
+            'username': random_proxy[2],
+            'password': random_proxy[3]
+        },
         geoip=True
     ).__aenter__()
 

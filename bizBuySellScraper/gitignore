@@ -1,0 +1,10 @@
+# Ignore environment variables
+.env
+**/.env
+
+# Optional: ignore editor or OS specific files
+.vscode/
+__pycache__/
+*.pyc
+*.log
+.env.*
