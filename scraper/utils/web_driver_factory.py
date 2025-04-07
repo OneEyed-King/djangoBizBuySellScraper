@@ -4,6 +4,9 @@ from selenium.webdriver.common.by import By
 from webdriver_manager.firefox import GeckoDriverManager
 from selenium.webdriver.firefox.service import Service
 from selenium.webdriver import FirefoxOptions
+import asyncio
+from camoufox.async_api import AsyncCamoufox 
+
 
 def get_chrome_web_driver(headless):
     options = Options()
@@ -25,5 +28,15 @@ def get_firefox_web_driver(headless):
     # service = Service(executable_path=GeckoDriverManager().install())
     driver =webdriver.Firefox(options=options)
     return driver
+
+async def get_camoufox_browser(headless, proxy=None):
+    """
+    Initializes AsyncCamoufox browser with optional proxy.
+    """
+    return await AsyncCamoufox(
+        headless=headless,
+        proxy=proxy,  # proxy format: {'server': ..., 'username': ..., 'password': ...}
+        geoip=True
+    ).__aenter__()
 
 
