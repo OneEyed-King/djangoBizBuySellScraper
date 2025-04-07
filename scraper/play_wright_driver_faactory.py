@@ -56,7 +56,14 @@ async def get_play_chrome_browser(headless: bool, proxy=None):
     random_proxy = random.choice(PROXIES).split(':')
 
     playwright = await async_playwright().start()
-
+    if random_proxy[0]:
+        implemented_proxy = {
+            "server":   random_proxy[0]+':'+random_proxy[1],
+            "username": random_proxy[2],
+            "password": random_proxy[3],
+        }
+    else:
+        implemented_proxy = None
     browser = await playwright.chromium.launch(
         headless=headless,
         args=[
@@ -68,11 +75,7 @@ async def get_play_chrome_browser(headless: bool, proxy=None):
             "--disable-gpu",
             "--disable-infobars",
         ],
-        proxy={
-            "server":   random_proxy[0]+':'+random_proxy[1],
-            "username": random_proxy[2],
-            "password": random_proxy[3],
-        },
+        proxy=implemented_proxy,
     )
 
     # Attach playwright to browser for later cleanup if needed
