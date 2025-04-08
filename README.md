@@ -15,7 +15,12 @@ This project is a web scraper for BizBuySell, a website for buying and selling b
 * **Playwright API Integration:** The scraper now uses the Playwright API for improved performance and reliability.
 * **Playwright Stealth Implementation:** Implemented Playwright Stealth to bypass bot detection mechanisms.
 * **Camouflax Browser Implementation:** Integrated the Camouflax browser for enhanced stealth capabilities.
-* **Proxy Rotation and Retry Mechanism:** Added proxy rotation and retry mechanism for increased resilience and to avoid IP blocking.
+* **Proxy Rotation and Retry Mechanism:** Added proxy rotation and retry mechanism for increased resilience and to avoid IP blocking.  If you have proxies, add them to the `.env` file in the `scraper` directory in the following format: `PROXIES=user:password@ip:port,user:password@ip:port`.
+
+
+**Additional Information:**
+
+* **Default Browser:** Chrome is the default browser used for scraping.
 
 
 This project provides an API for scraping data from BizBuySell.
