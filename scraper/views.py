@@ -30,6 +30,8 @@ class PlayWrightSellerView(APIView):
     headless = request.GET.get('headless', 'false').lower() == 'true'  # default: False
     count = int(request.GET.get('count', 2))                           # default: 5
     skip = int(request.GET.get('skip', 0))                             # default: 0
-    scraped_data = asyncio.run(scrape_with_play_wright(headless, count, skip))
+    use_proxy = request.GET.get('use_proxy', 'false').lower() == 'true'  # default: False
+
+    scraped_data = asyncio.run(scrape_with_play_wright(headless, count, skip, use_proxy))
     serializer = SellerDetailsSerializer(scraped_data, many = True) 
     return Response(serializer.data)    

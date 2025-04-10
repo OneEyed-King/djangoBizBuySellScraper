@@ -14,7 +14,7 @@ AVAILABLE_BROWSERS = [
     "camoufox"
 ]
 
-async def get_play_random_browser(headless: bool = True, proxy=None):
+async def get_play_random_browser(headless, proxy):
     """
     Randomly selects a browser type and returns the launched browser instance.
     """
@@ -30,7 +30,7 @@ async def get_play_random_browser(headless: bool = True, proxy=None):
         raise ValueError("Unsupported browser type selected.")
 
 
-async def get_play_camoufox_browser(headless, proxy=None):
+async def get_play_camoufox_browser(headless, proxy):
     """
     Initializes AsyncCamoufox browser with optional proxy.
     """
@@ -52,11 +52,11 @@ async def get_play_camoufox_browser(headless, proxy=None):
 
 
 
-async def get_play_chrome_browser(headless: bool, proxy=None):
+async def get_play_chrome_browser(headless, proxy):
     random_proxy = random.choice(PROXIES).split(':')
-
+    print(random_proxy)
     playwright = await async_playwright().start()
-    if random_proxy[0]:
+    if random_proxy[0] and proxy:
         implemented_proxy = {
             "server":   random_proxy[0]+':'+random_proxy[1],
             "username": random_proxy[2],
@@ -64,9 +64,12 @@ async def get_play_chrome_browser(headless: bool, proxy=None):
         }
     else:
         implemented_proxy = None
+
+    print(implemented_proxy)    
     browser = await playwright.chromium.launch(
         headless=headless,
         args=[
+            "--disable-http2",
             "--disable-blink-features=AutomationControlled",
             "--no-sandbox",
             "--disable-dev-shm-usage",
@@ -84,7 +87,7 @@ async def get_play_chrome_browser(headless: bool, proxy=None):
 
 
 
-async def get_play_firefox_browser(headless: bool, proxy=None):
+async def get_play_firefox_browser(headless, proxy):
     random_proxy = random.choice(PROXIES).split(':')
 
     playwright = await async_playwright().start()

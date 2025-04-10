@@ -18,15 +18,22 @@ RETRY_DELAY = 5  # seconds
 PAGE_GOTO_TIMEOUT = 30000  # 30 seconds
 MAX_CONCURRENT_PAGES = 3
 
+# Prevent image requests to speed up scraping and reduce data usage
+async def block_images(page):
+    await page.route("**/*", lambda route, request: route.abort() if request.resource_type == "image" else route.continue_())
 
-async def scrape_with_play_wright(headless, count, skip):
-    return await scrape_data(headless, count, skip)
+
+async def scrape_with_play_wright(headless, count, skip, use_proxy):
+    return await scrape_data(headless, count, skip, use_proxy)
 
 
-async def scrape_data(headless, count, skip):
+async def scrape_data(headless, count, skip, use_proxy):
     async with async_playwright() as p:
-        browser = await get_play_chrome_browser(headless)
+        browser = await get_play_chrome_browser(headless, use_proxy)
+        # browser = await get_play_random_browser(headless, use_proxy)
+
         page = await browser.new_page()
+        await block_images(page)
         await stealth_async(page)
 
         for attempt in range(MAX_RETRIES):
@@ -55,7 +62,8 @@ async def scrape_data(headless, count, skip):
 
         while len(business_listings) < count and current_index < len(web_listings):
             batch = web_listings[current_index:current_index + MAX_CONCURRENT_PAGES]
-            results = await extract_seller_details_concurrent(browser, batch, MAX_CONCURRENT_PAGES)
+            # results = await extract_seller_details_concurrent(browser, batch, MAX_CONCURRENT_PAGES)
+            results = await extract_seller_details_batch(batch, headless, use_proxy, batch_size=MAX_CONCURRENT_PAGES)
             
             for result in results:
                 if result and result.description and not result.blocked:
@@ -81,6 +89,59 @@ async def scrape_data(headless, count, skip):
 
         # await browser.close()
         # return business_listings
+
+
+async def extract_seller_details_batch(listings, headless, use_proxy, batch_size=3):
+    semaphore = Semaphore(batch_size)
+    results = []
+
+    async def process_listing(listing):
+        for attempt in range(MAX_RETRIES):
+            browser = None
+            try:
+                browser = await get_play_chrome_browser(headless, use_proxy)
+                # browser = await get_play_random_browser(headless, use_proxy)
+
+                
+                page = await browser.new_page()
+                await block_images(page)
+
+                await stealth_async(page)
+
+                log.info(f"🔄 Attempt {attempt+1} for {listing.url}")
+                result = await extract_seller_details(page, listing)
+
+                await page.close()
+                await browser.close()
+
+                if not result.blocked:
+                    return result
+
+            except Exception as e:
+                log.warning(f"[!] Error on attempt {attempt+1} for {listing.url}: {e}")
+            finally:
+                try:
+                    if browser:
+                        await browser.close()
+                except:
+                    pass
+            await asyncio.sleep(RETRY_DELAY)
+
+        listing.blocked = True
+        log.error(f"[x] Blocked after {MAX_RETRIES} retries: {listing.url}")
+        return listing
+
+    tasks = []
+    for listing in listings:
+        async def task_fn(listing=listing):
+            async with semaphore:
+                return await process_listing(listing)
+
+        tasks.append(task_fn())
+
+    results = await asyncio.gather(*tasks)
+    return [res for res in results if res and not res.blocked]
+
 
 async def extract_seller_details_concurrent(browser, listings, concurrency):
     semaphore = Semaphore(concurrency)
