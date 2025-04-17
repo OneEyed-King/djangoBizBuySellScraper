@@ -3,9 +3,9 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 import asyncio
 
-from scraper.playwright_scraper import scrape_with_play_wright
+from scraper.playwright_scraper import scrape_with_play_wright, scrape_regions_with_play_wright
 from .scraper import extract_listing_details, scrape, get_listings
-from .serializers import BusinessListingSerializer, SellerDetailsSerializer
+from .serializers import BusinessListingSerializer, SellerDetailsSerializer, RegionSerializer
 
 class ScraperView(APIView):
    def get(self, request):
@@ -34,4 +34,12 @@ class PlayWrightSellerView(APIView):
 
     scraped_data = asyncio.run(scrape_with_play_wright(headless, count, skip, use_proxy))
     serializer = SellerDetailsSerializer(scraped_data, many = True) 
+    return Response(serializer.data)    
+
+class PlayWrightRegionView(APIView):
+  def get(self, request):
+    headless = request.GET.get('headless', 'false').lower() == 'true'  # default: False
+    use_proxy = request.GET.get('use_proxy', 'false').lower() == 'true'  # default: False
+    scraped_data = asyncio.run(scrape_regions_with_play_wright(headless, use_proxy))
+    serializer = RegionSerializer(scraped_data, many = True) 
     return Response(serializer.data)    

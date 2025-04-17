@@ -17,4 +17,18 @@ class SellerDetailsSerializer(serializers.Serializer):
 class BusinessListingSerializer(serializers.Serializer):
     url = serializers.CharField()
     listing_id = serializers.CharField()
-    contact_button_id = serializers.CharField()    
+    contact_button_id = serializers.CharField()   
+
+class RegionSerializer(serializers.Serializer):
+    geoType = serializers.IntegerField()
+    regionId = serializers.CharField()
+    countryCode = serializers.CharField()
+    countryId = serializers.CharField() 
+    stateCode = serializers.CharField()
+    legacyRegionId = serializers.IntegerField() 
+    legacyRegionCode = serializers.CharField()
+    metroAreaId = serializers.IntegerField()
+    regionName = serializers.CharField()
+    regionNameSeo = serializers.CharField()
+    displayName = serializers.CharField() 
+    locationDetected = serializers.BooleanField()    

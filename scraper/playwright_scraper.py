@@ -27,11 +27,61 @@ async def scrape_with_play_wright(headless, count, skip, use_proxy):
     return await scrape_data(headless, count, skip, use_proxy)
 
 
+# async def scrape_data(headless, count, skip, use_proxy):
+#     async with async_playwright() as p:
+#         browser = await get_play_chrome_browser(headless, use_proxy)
+#         # browser = await get_play_random_browser(headless, use_proxy)
+
+#         page = await browser.new_page()
+#         await block_images(page)
+#         await stealth_async(page)
+
+#         for attempt in range(MAX_RETRIES):
+#             try:
+#                 await page.goto(URL, timeout=PAGE_GOTO_TIMEOUT, wait_until="load")
+#                 await page.wait_for_selector("a.diamond", timeout=10000)
+#                 break  # success, exit retry loop
+#             except PlaywrightTimeoutError as e:
+#                 log.warning(f"[Attempt {attempt + 1}] Timeout loading URL: {URL}")
+#                 if attempt == MAX_RETRIES - 1:
+#                     log.error(f"[x] Failed to load the main listings page after {MAX_RETRIES} attempts")
+#                     await browser.close()
+#                     return []  # or raise exception if you want to crash
+#                 await asyncio.sleep(RETRY_DELAY)
+
+#         elements = await page.query_selector_all("a.diamond")
+
+#         log.info('Number of Listings found: %s', len(elements))
+#         web_listings = await extract_listing_details(elements)
+
+#         if skip > len(web_listings):
+#             skip = 0
+#         web_listings = web_listings[skip:]
+#         business_listings = []
+#         current_index = 0
+
+#         while len(business_listings) < count and current_index < len(web_listings):
+#             batch = web_listings[current_index:current_index + MAX_CONCURRENT_PAGES]
+#             # results = await extract_seller_details_concurrent(browser, batch, MAX_CONCURRENT_PAGES)
+#             # results = await extract_seller_details_batch(batch, headless, use_proxy, batch_size=MAX_CONCURRENT_PAGES)
+#             results = await extract_seller_details_batch(batch, headless, use_proxy, batch_size=15)
+
+            
+#             for result in results:
+#                 if result and result.description and not result.blocked:
+#                     business_listings.append(result)
+#                     if len(business_listings) == count:
+#                         break
+
+#             current_index += MAX_CONCURRENT_PAGES
+
+#         await browser.close()
+#         log.info(f"[✓] Final count of valid listings: {len(business_listings)}")
+#         return business_listings
+
 async def scrape_data(headless, count, skip, use_proxy):
     async with async_playwright() as p:
         browser = await get_play_chrome_browser(headless, use_proxy)
-        # browser = await get_play_random_browser(headless, use_proxy)
-
         page = await browser.new_page()
         await block_images(page)
         await stealth_async(page)
@@ -40,58 +90,55 @@ async def scrape_data(headless, count, skip, use_proxy):
             try:
                 await page.goto(URL, timeout=PAGE_GOTO_TIMEOUT, wait_until="load")
                 await page.wait_for_selector("a.diamond", timeout=10000)
-                break  # success, exit retry loop
-            except PlaywrightTimeoutError as e:
+                break
+            except PlaywrightTimeoutError:
                 log.warning(f"[Attempt {attempt + 1}] Timeout loading URL: {URL}")
                 if attempt == MAX_RETRIES - 1:
-                    log.error(f"[x] Failed to load the main listings page after {MAX_RETRIES} attempts")
                     await browser.close()
-                    return []  # or raise exception if you want to crash
+                    return []
                 await asyncio.sleep(RETRY_DELAY)
 
         elements = await page.query_selector_all("a.diamond")
-
-        log.info('Number of Listings found: %s', len(elements))
         web_listings = await extract_listing_details(elements)
 
         if skip > len(web_listings):
             skip = 0
         web_listings = web_listings[skip:]
+
         business_listings = []
         current_index = 0
+        dynamic_batch_size = min(15, count)
 
         while len(business_listings) < count and current_index < len(web_listings):
-            batch = web_listings[current_index:current_index + MAX_CONCURRENT_PAGES]
-            # results = await extract_seller_details_concurrent(browser, batch, MAX_CONCURRENT_PAGES)
-            results = await extract_seller_details_batch(batch, headless, use_proxy, batch_size=MAX_CONCURRENT_PAGES)
-            
+            remaining = count - len(business_listings)
+            batch_size = min(dynamic_batch_size, remaining)
+            batch = web_listings[current_index:current_index + batch_size]
+
+            results = await extract_seller_details_batch(batch, headless, use_proxy, batch_size=batch_size)
+
+            valid_results = []
             for result in results:
                 if result and result.description and not result.blocked:
+                    valid_results.append(result)
                     business_listings.append(result)
                     if len(business_listings) == count:
                         break
 
-            current_index += MAX_CONCURRENT_PAGES
+            # Adjust concurrency based on how many were valid
+            dynamic_batch_size = min(15, count - len(business_listings), len(batch) - len(valid_results))
+
+            # Ensure minimum of 1
+            dynamic_batch_size = max(dynamic_batch_size, 1)
+
+            current_index += len(batch)
 
         await browser.close()
-        log.info(f"[✓] Final count of valid listings: {len(business_listings)}")
+        save_listing_to_mongo(business_listings)
         return business_listings
-
-        # limited_listings = web_listings[:min(count, len(web_listings))]
-        # # tasks = [extract_seller_details_threaded(p, listing, headless) for listing in limited_listings]
-        # # results = await asyncio.gather(*tasks)
-        # results = await extract_seller_details_concurrent(browser, limited_listings, MAX_CONCURRENT_PAGES)
-    
-
-        # for result in results:
-        #     if result and result.description:
-        #         business_listings.append(result)
-
-        # await browser.close()
-        # return business_listings
+      
 
 
-async def extract_seller_details_batch(listings, headless, use_proxy, batch_size=3):
+async def extract_seller_details_batch(listings, headless, use_proxy, batch_size=15):
     semaphore = Semaphore(batch_size)
     results = []
 
@@ -141,6 +188,33 @@ async def extract_seller_details_batch(listings, headless, use_proxy, batch_size
 
     results = await asyncio.gather(*tasks)
     return [res for res in results if res and not res.blocked]
+
+
+def save_listing_to_mongo(listing_data):
+    from .mongo_client import get_mongo_collection
+    collection = get_mongo_collection("business_listings")
+
+    def to_clean_dict(item):
+        if isinstance(item, dict):
+            return item
+        # Django model: convert to dict excluding internal fields like _state
+        return {
+            k: v for k, v in vars(item).items()
+            if not k.startswith("_")
+        }
+
+    if isinstance(listing_data, list):
+        try:
+            data = [to_clean_dict(item) for item in listing_data]
+            collection.insert_many(data)
+        except Exception as e:
+            print("❌ Failed to insert listings into MongoDB:", e)
+    elif isinstance(listing_data, dict):
+        collection.insert_one(to_clean_dict(listing_data))
+    else:
+        print("❌ Unsupported data format for MongoDB:", type(listing_data), listing_data)
+
+
 
 
 async def extract_seller_details_concurrent(browser, listings, concurrency):
@@ -215,18 +289,7 @@ async def extract_seller_details(page, listing):
         except:
             log.warning(f"Could not get phone for {listing.url}")
 
-        # # Seller Name
-        # try:
-            
-        #     # seller_elem = await page.wait_for_selector("#contactSellerForm > div:nth-child(10) > div:nth-child(1) > div:nth-child(1)", timeout=10000)
-        #     seller_elem = await page.wait_for_selector("div:has-text('Listed By:')", timeout=10000)
-        #     raw_text = await seller_elem.inner_text()
-        #     log.info('raw text seller name %s', raw_text)
-        #     listing.seller_name = raw_text.replace("Listed By:", "").strip()
-        # except:
-        #     log.error("Timeout for seller name")
-        #     pass
-
+    
         # Extract Seller Name
         try:
             # Get all divs and scan for "Listed By:"
@@ -312,3 +375,72 @@ async def extract_listing_details(elements):
             log.error(f"Error extracting listing: {e}")
 
     return business_listings
+
+# ----------------------------------------------------------------------------------
+
+
+from playwright.async_api import async_playwright
+import asyncio
+import logging
+
+log = logging.getLogger(__name__)
+
+async def scrape_regions_with_play_wright(headless, use_proxy):
+    browser = await get_play_chrome_browser(headless, use_proxy)
+    response_data = None
+    ajax_url_keyword = "api/Resource/GetRegions"
+
+    try:
+        # Create context and page from the browser
+        context = await browser.new_context()
+        page = await context.new_page()
+
+        await block_images(page)
+        await stealth_async(page)
+
+        # Start waiting for the AJAX request
+        async def wait_for_ajax():
+            response = await page.wait_for_response(
+                lambda r: (
+                    r.request.resource_type in ["xhr", "fetch"] and
+                    ajax_url_keyword in r.url and
+                    r.status == 200
+                ),
+                timeout=15000
+            )
+
+            request = response.request
+            request_details = {
+                "method": request.method,
+                "url": request.url,
+                "headers": request.headers,
+                "post_data": await request.post_data() if request.method != "GET" else None,
+            }
+
+            content_type = response.headers.get("content-type", "")
+            response_body = (
+                await response.json() if "application/json" in content_type else await response.text()
+            )
+
+            return {
+                "request": request_details,
+                "response": response_body,
+            }
+
+        # Navigate and simultaneously wait for AJAX
+        ajax_future = asyncio.create_task(wait_for_ajax())
+        await page.goto(URL, wait_until="domcontentloaded", timeout=30000)
+        ajax_result = await ajax_future
+
+        log.info("[✓] AJAX Request: %s", ajax_result["request"])
+        log.info("[✓] AJAX Response: %s", ajax_result["response"])
+
+        response_data = ajax_result["response"]
+
+    except Exception as e:
+        print(f"[!] Error capturing AJAX: {e}")
+    finally:
+        await browser.close()
+        await browser._my_playwright.stop()
+
+    return response_data

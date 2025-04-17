@@ -19,3 +19,16 @@ class BusinessListing(models.Model):
 
 
 # Create your models here.
+class Regions(models.Model):
+    geoType = models.IntegerField()
+    regionId = models.CharField()
+    countryCode = models.CharField()
+    countryId = models.CharField() 
+    stateCode = models.CharField()
+    legacyRegionId = models.IntegerField() 
+    legacyRegionCode = models.CharField()
+    metroAreaId = models.IntegerField()
+    regionName = models.CharField()
+    regionNameSeo = models.CharField()
+    displayName = models.CharField() 
+    locationDetected = models.BooleanField()
