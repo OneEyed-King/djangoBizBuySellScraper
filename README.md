@@ -1,20 +1,17 @@
 # BizBuySell Scraper API
 
-This project is a web scraper for BizBuySell, a website for buying and selling businesses. It uses Python, Django, Selenium, and Playwright to extract data from BizBuySell listings.
+This project is a web scraper for BizBuySell, a website for buying and selling businesses. It uses Python, Django, and Playwright to extract data from BizBuySell listings and stores them in MongoDB.
 
 **Framework and Libraries Used:**
 * **Django:** 4.2.1
-* **Selenium:** 4.10.0
 * **Playwright:** 1.32.0
 * **Python:** 3.11
+* **MongoDB:** 4.4.0
 
 **New Features:**
 
 * **Playwright API Integration:** The scraper now uses the Playwright API for improved performance, reliability, and stealth capabilities.
-
-* **Playwright API Integration:** The scraper now uses the Playwright API for improved performance and reliability.
-* **Playwright Stealth Implementation:** Implemented Playwright Stealth to bypass bot detection mechanisms.
-* **Camouflax Browser Implementation:** Integrated the Camouflax browser for enhanced stealth capabilities.
+* **Stealth Enhancements:** Implemented various techniques, including browser camouflage, to bypass bot detection mechanisms.
 * **Proxy Rotation and Retry Mechanism:** Added proxy rotation and retry mechanism for increased resilience and to avoid IP blocking.  If you have proxies, add them to the `.env` file in the `scraper` directory in the following format: `PROXIES=user:password@ip:port,user:password@ip:port`.
 
 

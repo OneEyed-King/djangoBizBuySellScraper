@@ -5,11 +5,11 @@ from pymongo import MongoClient
 MONGO_URI = "mongodb://localhost:27017"
 DB_NAME = "scraper_db"
 
-client = MongoClient(MONGO_URI)
-db = client[DB_NAME]
+def get_mongo_collection(collection_name: str):
+    client = MongoClient(MONGO_URI)
+    db = client[DB_NAME]  # or whatever your database is named
+    collection = db[collection_name]
+    collection.create_index("url", unique=True)
+    return collection
 
-
-def get_mongo_collection(collection_name):
-    collection_name.create_index("url", unique=True)
-    return db[collection_name]
 

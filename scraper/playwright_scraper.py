@@ -9,6 +9,7 @@ from playwright.async_api import Playwright as playwright
 from playwright_stealth import stealth_async
 from asyncio import Semaphore
 from .models import BusinessListing
+import re
 
 URL = 'https://www.bizbuysell.com/buy/'
 # URL = 'https://httpbin.org/ip'
@@ -23,61 +24,9 @@ async def block_images(page):
     await page.route("**/*", lambda route, request: route.abort() if request.resource_type == "image" else route.continue_())
 
 
+
 async def scrape_with_play_wright(headless, count, skip, use_proxy):
     return await scrape_data(headless, count, skip, use_proxy)
-
-
-# async def scrape_data(headless, count, skip, use_proxy):
-#     async with async_playwright() as p:
-#         browser = await get_play_chrome_browser(headless, use_proxy)
-#         # browser = await get_play_random_browser(headless, use_proxy)
-
-#         page = await browser.new_page()
-#         await block_images(page)
-#         await stealth_async(page)
-
-#         for attempt in range(MAX_RETRIES):
-#             try:
-#                 await page.goto(URL, timeout=PAGE_GOTO_TIMEOUT, wait_until="load")
-#                 await page.wait_for_selector("a.diamond", timeout=10000)
-#                 break  # success, exit retry loop
-#             except PlaywrightTimeoutError as e:
-#                 log.warning(f"[Attempt {attempt + 1}] Timeout loading URL: {URL}")
-#                 if attempt == MAX_RETRIES - 1:
-#                     log.error(f"[x] Failed to load the main listings page after {MAX_RETRIES} attempts")
-#                     await browser.close()
-#                     return []  # or raise exception if you want to crash
-#                 await asyncio.sleep(RETRY_DELAY)
-
-#         elements = await page.query_selector_all("a.diamond")
-
-#         log.info('Number of Listings found: %s', len(elements))
-#         web_listings = await extract_listing_details(elements)
-
-#         if skip > len(web_listings):
-#             skip = 0
-#         web_listings = web_listings[skip:]
-#         business_listings = []
-#         current_index = 0
-
-#         while len(business_listings) < count and current_index < len(web_listings):
-#             batch = web_listings[current_index:current_index + MAX_CONCURRENT_PAGES]
-#             # results = await extract_seller_details_concurrent(browser, batch, MAX_CONCURRENT_PAGES)
-#             # results = await extract_seller_details_batch(batch, headless, use_proxy, batch_size=MAX_CONCURRENT_PAGES)
-#             results = await extract_seller_details_batch(batch, headless, use_proxy, batch_size=15)
-
-            
-#             for result in results:
-#                 if result and result.description and not result.blocked:
-#                     business_listings.append(result)
-#                     if len(business_listings) == count:
-#                         break
-
-#             current_index += MAX_CONCURRENT_PAGES
-
-#         await browser.close()
-#         log.info(f"[✓] Final count of valid listings: {len(business_listings)}")
-#         return business_listings
 
 async def scrape_data(headless, count, skip, use_proxy):
     async with async_playwright() as p:
@@ -89,7 +38,7 @@ async def scrape_data(headless, count, skip, use_proxy):
         for attempt in range(MAX_RETRIES):
             try:
                 await page.goto(URL, timeout=PAGE_GOTO_TIMEOUT, wait_until="load")
-                await page.wait_for_selector("a.diamond", timeout=10000)
+                await page.wait_for_selector("a.diamond", timeout=10000, state="attached")
                 break
             except PlaywrightTimeoutError:
                 log.warning(f"[Attempt {attempt + 1}] Timeout loading URL: {URL}")
@@ -105,37 +54,138 @@ async def scrape_data(headless, count, skip, use_proxy):
             skip = 0
         web_listings = web_listings[skip:]
 
-        business_listings = []
+        # Fetch existing from DB and decide what's left to scrape
+        existing_records, to_scrape_all = get_existing_and_new_listings(web_listings, count)
+        log.info(f"✅ Existing records found: {len(existing_records)}")
+
+        business_listings = existing_records[:count]  # Only take as many existing as needed
+
+        remaining = count - len(business_listings)
+        if remaining <= 0:
+            await browser.close()
+            return business_listings
+
+        to_scrape = to_scrape_all  # don't limit here
         current_index = 0
-        dynamic_batch_size = min(15, count)
 
-        while len(business_listings) < count and current_index < len(web_listings):
-            remaining = count - len(business_listings)
-            batch_size = min(dynamic_batch_size, remaining)
-            batch = web_listings[current_index:current_index + batch_size]
+        while len(business_listings) < count and current_index < len(to_scrape):
+            batch = to_scrape[current_index:current_index + 3]
+            if not batch:
+                break
 
-            results = await extract_seller_details_batch(batch, headless, use_proxy, batch_size=batch_size)
+            results = await extract_seller_details_batch(batch, headless, use_proxy, batch_size=3)
 
-            valid_results = []
             for result in results:
                 if result and result.description and not result.blocked:
-                    valid_results.append(result)
                     business_listings.append(result)
                     if len(business_listings) == count:
                         break
 
-            # Adjust concurrency based on how many were valid
-            dynamic_batch_size = min(15, count - len(business_listings), len(batch) - len(valid_results))
-
-            # Ensure minimum of 1
-            dynamic_batch_size = max(dynamic_batch_size, 1)
-
-            current_index += len(batch)
+            current_index += 3
 
         await browser.close()
         save_listing_to_mongo(business_listings)
-        return business_listings
-      
+        return business_listings[:count]
+
+
+# async def scrape_data(headless, count, skip, use_proxy):
+#     # from .mongo_client import get_mongo_collection
+
+#     async with async_playwright() as p:
+#         browser = await get_play_chrome_browser(headless, use_proxy)
+#         page = await browser.new_page()
+#         await block_images(page)
+#         await stealth_async(page)
+
+#         for attempt in range(MAX_RETRIES):
+#             try:
+#                 await page.goto(URL, timeout=PAGE_GOTO_TIMEOUT, wait_until="load")
+#                 await page.wait_for_selector("a.diamond", timeout=10000, state="attached")
+#                 break
+#             except PlaywrightTimeoutError:
+#                 log.warning(f"[Attempt {attempt + 1}] Timeout loading URL: {URL}")
+#                 if attempt == MAX_RETRIES - 1:
+#                     await browser.close()
+#                     return []
+#                 await asyncio.sleep(RETRY_DELAY)
+
+#         elements = await page.query_selector_all("a.diamond")
+#         web_listings = await extract_listing_details(elements)
+
+#         if skip > len(web_listings):
+#             skip = 0
+#         web_listings = web_listings[skip:]
+
+#         existing_records, to_scrape = get_existing_and_new_listings(web_listings, count)
+#         log.info(f'existing listings: {existing_records}')
+
+#         business_listings = existing_records.copy()
+#         current_index = 0
+#         # remaining = count - len(business_listings)
+#         # dynamic_batch_size = min(5, remaining, len(batch)) 
+#         # dynamic_batch_size = min(5, count)
+
+#         while len(business_listings) < count and current_index < len(to_scrape):
+#             remaining = count - len(business_listings)
+#             # batch_size = min(dynamic_batch_size, remaining)
+#             # batch = to_scrape[current_index:current_index + batch_size]
+#             batch = to_scrape[current_index:current_index + min(3, remaining)]
+#             batch_size = len(batch)
+
+#             results = await extract_seller_details_batch(batch, headless, use_proxy, batch_size=batch_size)
+
+#             valid_results = []
+#             for result in results:
+#                 if result and result.description and not result.blocked:
+#                     valid_results.append(result)
+#                     business_listings.append(result)
+#                     if len(business_listings) == count:
+#                         break
+
+#             dynamic_batch_size = min(15, count - len(business_listings), len(batch) - len(valid_results))
+#             dynamic_batch_size = max(dynamic_batch_size, 1)
+
+#             current_index += len(batch)
+
+#         await browser.close()
+#         save_listing_to_mongo(business_listings)
+#         return business_listings
+
+def get_existing_and_new_listings(web_listings, count):
+    from .mongo_client import get_mongo_collection
+    collection = get_mongo_collection("business_listings")
+
+    all_urls = [l.url for l in web_listings]
+    existing_docs = list(collection.find({"url": {"$in": all_urls}}))
+    existing_urls = {doc["url"] for doc in existing_docs}
+
+    existing_records = []
+    to_scrape = []
+    for listing in web_listings:
+        if listing.url in existing_urls:
+            existing_doc = next((doc for doc in existing_docs if doc["url"] == listing.url), None)
+            if existing_doc:
+                existing_records.append(existing_doc)
+        else:
+            to_scrape.append(listing)
+
+    return existing_records, to_scrape
+
+
+
+
+# def get_existing_and_new_listings(web_listings, count):
+#     from .mongo_client import get_mongo_collection
+#     collection = get_mongo_collection("business_listings")
+
+#     urls_to_check = [l.url for l in web_listings[:count]]
+#     existing = list(collection.find({"url": {"$in": urls_to_check}}))
+#     existing_urls = {doc["url"] for doc in existing}
+
+#     existing_records = existing
+
+#     to_scrape = [l for l in web_listings if l.url not in existing_urls][:count - len(existing_records)]
+#     return existing_records, to_scrape
 
 
 async def extract_seller_details_batch(listings, headless, use_proxy, batch_size=15):
@@ -147,12 +197,8 @@ async def extract_seller_details_batch(listings, headless, use_proxy, batch_size
             browser = None
             try:
                 browser = await get_play_chrome_browser(headless, use_proxy)
-                # browser = await get_play_random_browser(headless, use_proxy)
-
-                
                 page = await browser.new_page()
                 await block_images(page)
-
                 await stealth_async(page)
 
                 log.info(f"🔄 Attempt {attempt+1} for {listing.url}")
@@ -192,83 +238,32 @@ async def extract_seller_details_batch(listings, headless, use_proxy, batch_size
 
 def save_listing_to_mongo(listing_data):
     from .mongo_client import get_mongo_collection
+    from pymongo.errors import DuplicateKeyError
     collection = get_mongo_collection("business_listings")
 
     def to_clean_dict(item):
         if isinstance(item, dict):
             return item
-        # Django model: convert to dict excluding internal fields like _state
-        return {
-            k: v for k, v in vars(item).items()
-            if not k.startswith("_")
-        }
+        return {k: v for k, v in vars(item).items() if not k.startswith("_")}
 
     if isinstance(listing_data, list):
-        try:
-            data = [to_clean_dict(item) for item in listing_data]
-            collection.insert_many(data)
-        except Exception as e:
-            print("❌ Failed to insert listings into MongoDB:", e)
+        for item in listing_data:
+            try:
+                collection.insert_one(to_clean_dict(item))
+            except DuplicateKeyError:
+                pass
+            except Exception as e:
+                print("❌ Failed to insert listing into MongoDB:", e)
     elif isinstance(listing_data, dict):
-        collection.insert_one(to_clean_dict(listing_data))
+        try:
+            collection.insert_one(to_clean_dict(listing_data))
+        except DuplicateKeyError:
+            pass
+        except Exception as e:
+            print("❌ Failed to insert listing into MongoDB:", e)
     else:
         print("❌ Unsupported data format for MongoDB:", type(listing_data), listing_data)
 
-
-
-
-async def extract_seller_details_concurrent(browser, listings, concurrency):
-    semaphore = Semaphore(concurrency)
-
-    async def bounded_task(listing):
-        async with semaphore:
-            return await extract_seller_details_with_page(browser, listing, headless=False)
-
-    tasks = [bounded_task(listing) for listing in listings]
-    return await asyncio.gather(*tasks)
-
-async def extract_seller_details_with_page(browser, listing, headless):
-    page = await browser.new_page()
-    await stealth_async(page)
-
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            log.info(f"🔄 Attempt {attempt}/{MAX_RETRIES} for: {listing.url}")
-            result = await extract_seller_details(page, listing)
-            await page.close()
-            return result
-        except Exception as e:
-            log.warning(f"[!] Failed attempt {attempt} for {listing.url}: {e}")
-            if attempt == MAX_RETRIES:
-                listing.blocked = True
-                log.error(f"[x] Marked as blocked after {MAX_RETRIES} attempts: {listing.url}")
-                await page.close()
-                return listing
-        finally:
-            try:
-                await page.close()
-            except:
-                pass
-# Tobe used in case we want to run multiple threads 
-async def extract_seller_details_threaded(playwright, listing, headless):
-    for attempt in range(1, MAX_RETRIES + 1):
-        browser = await get_play_chrome_browser(headless)
-        page = await browser.new_page()
-        await stealth_async(page)
-        try:
-            log.info(f"🔄 Attempt {attempt}/{MAX_RETRIES} for: {listing.url}")
-            result = await extract_seller_details(page, listing)
-            await browser.close()
-            return result
-        except Exception as e:
-            log.warning(f"[!] Failed attempt {attempt} for {listing.url}: {e}")
-            await browser.close()
-            if attempt == MAX_RETRIES:
-                listing.blocked = True
-                log.error(f"[x] Marked as blocked after {MAX_RETRIES} attempts: {listing.url}")
-                return listing
-        finally:
-            await browser.close()
 
 # To extract seller details like seller name and contacts etc
 async def extract_seller_details(page, listing):
@@ -278,16 +273,28 @@ async def extract_seller_details(page, listing):
         html = await page.content()
         soup = BeautifulSoup(html, "html.parser")
 
-        # Click contact button
         try:
-            contact_button = await page.wait_for_selector(f"#{listing.contact_button_id}", timeout=5000)
-            await contact_button.click()
-            await page.wait_for_timeout(2000)
-
-            phone_elem = await page.wait_for_selector(f"#lblViewTpnTelephone_{listing.listing_id}", timeout=5000)
-            listing.seller_contact = await phone_elem.inner_text()
-        except:
-            log.warning(f"Could not get phone for {listing.url}")
+            # Get full HTML content
+          # Grab entire page HTML
+          html = await page.content()
+          soup = BeautifulSoup(html, "html.parser")
+      
+          # Look for the hidden span that contains the phone number
+          phone_container = soup.find("span", class_="ctc_phone", style=lambda s: s and "display:none" in s)
+      
+          if phone_container:
+              # Find the phone number inside this hidden span
+              phone_number_span = phone_container.find("span", class_="text-dec-h")
+              if phone_number_span:
+                  listing.seller_contact = phone_number_span.get_text(strip=True)
+                  log.info(f"[✓] Found phone number: {listing.seller_contact}")
+              else:
+                  log.warning(f"[!] Hidden phone number span not found inside container at {listing.url}")
+          else:
+              log.warning(f"[!] Hidden phone container not found in HTML for {listing.url}")
+      
+        except Exception as e:
+           log.warning(f"❌ Could not extract phone from HTML for {listing.url} — Reason: {str(e)}")
 
     
         # Extract Seller Name
@@ -361,7 +368,7 @@ async def extract_listing_details(elements):
         try:
             href = await el.get_attribute("href")
             if href:
-                listing_url = href.rstrip("/")
+                listing_url = clean_url(href)
                 listing_id = listing_url.split("/")[-1]
                 contact_button_id = f"hlViewTelephone_{listing_id}"
 
@@ -444,3 +451,12 @@ async def scrape_regions_with_play_wright(headless, use_proxy):
         await browser._my_playwright.stop()
 
     return response_data
+
+def clean_url(href: str) -> str:
+    href = href.strip()
+
+    # Remove accidental duplicate slashes but preserve protocol ones (e.g., 'https://')
+    href = re.sub(r"(?<!:)//+", "/", href)
+
+
+    return href

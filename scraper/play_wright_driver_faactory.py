@@ -4,7 +4,9 @@ import random
 from playwright.async_api import async_playwright
 from playwright.async_api import Playwright
 from decouple import config
+import logging
 
+log = logging.getLogger(__name__)
 PROXIES = config("PROXIES").split(",")
 
 # List of available browser launcher functions
@@ -54,16 +56,22 @@ async def get_play_camoufox_browser(headless, proxy):
 
 async def get_play_chrome_browser(headless, proxy):
     random_proxy = random.choice(PROXIES).split(':')
-    print(random_proxy)
+    log.info(f"random proxy picked: {random_proxy}")
     playwright = await async_playwright().start()
-    if random_proxy[0] and proxy:
-        implemented_proxy = {
-            "server":   random_proxy[0]+':'+random_proxy[1],
-            "username": random_proxy[2],
-            "password": random_proxy[3],
-        }
+
+    if random_proxy and len(random_proxy) == 4:
+      server = f"{random_proxy[0]}:{random_proxy[1]}"
+      username = random_proxy[2]
+      password = random_proxy[3]
+      implemented_proxy = {
+        "server": server,
+        "username": username,
+        "password": password
+    }
     else:
-        implemented_proxy = None
+      implemented_proxy = None
+     
+    log.info(f"Implemented Proxy: {implemented_proxy}")
 
     print(implemented_proxy)    
     browser = await playwright.chromium.launch(
