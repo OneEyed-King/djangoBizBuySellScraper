@@ -13,6 +13,7 @@ class BusinessListing(models.Model):
     description = models.TextField(blank=True, null=True)
     detailed_info = models.TextField(blank=True, null=True)
     blocked = models.BooleanField(default=False)
+    raw_html = models.TextField(blank=True, null=True)
 
     def __str__(self):
         return self.name or self.listing_id

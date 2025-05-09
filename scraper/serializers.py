@@ -11,6 +11,7 @@ class SellerDetailsSerializer(serializers.Serializer):
     description = serializers.CharField()
     detailed_info = serializers.CharField()
     blocked = serializers.BooleanField()
+    raw_html =serializers.CharField()
 
   
 # Partial serializer for initial listing extraction
