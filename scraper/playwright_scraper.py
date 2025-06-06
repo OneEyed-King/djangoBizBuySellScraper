@@ -22,6 +22,9 @@ import re
 from playwright.async_api import async_playwright
 import asyncio
 import logging
+import csv
+import io
+from django.http import HttpResponse
 
 URL = 'https://www.bizbuysell.com/buy/'
 # URL = 'https://httpbin.org/ip'
@@ -113,70 +116,6 @@ async def scrape_data(headless, count, skip, use_proxy):
         save_listing_to_mongo(business_listings)
         return business_listings[:count]
 
-
-# async def scrape_data(headless, count, skip, use_proxy):
-#     # from .mongo_client import get_mongo_collection
-
-#     async with async_playwright() as p:
-#         browser = await get_play_chrome_browser(headless, use_proxy)
-#         page = await browser.new_page()
-#         await block_images(page)
-#         await stealth_async(page)
-
-#         for attempt in range(MAX_RETRIES):
-#             try:
-#                 await page.goto(URL, timeout=PAGE_GOTO_TIMEOUT, wait_until="load")
-#                 await page.wait_for_selector("a.diamond", timeout=10000, state="attached")
-#                 break
-#             except PlaywrightTimeoutError:
-#                 log.warning(f"[Attempt {attempt + 1}] Timeout loading URL: {URL}")
-#                 if attempt == MAX_RETRIES - 1:
-#                     await browser.close()
-#                     return []
-#                 await asyncio.sleep(RETRY_DELAY)
-
-#         elements = await page.query_selector_all("a.diamond")
-#         web_listings = await extract_listing_details(elements)
-
-#         if skip > len(web_listings):
-#             skip = 0
-#         web_listings = web_listings[skip:]
-
-#         existing_records, to_scrape = get_existing_and_new_listings(web_listings, count)
-#         log.info(f'existing listings: {existing_records}')
-
-#         business_listings = existing_records.copy()
-#         current_index = 0
-#         # remaining = count - len(business_listings)
-#         # dynamic_batch_size = min(5, remaining, len(batch)) 
-#         # dynamic_batch_size = min(5, count)
-
-#         while len(business_listings) < count and current_index < len(to_scrape):
-#             remaining = count - len(business_listings)
-#             # batch_size = min(dynamic_batch_size, remaining)
-#             # batch = to_scrape[current_index:current_index + batch_size]
-#             batch = to_scrape[current_index:current_index + min(3, remaining)]
-#             batch_size = len(batch)
-
-#             results = await extract_seller_details_batch(batch, headless, use_proxy, batch_size=batch_size)
-
-#             valid_results = []
-#             for result in results:
-#                 if result and result.description and not result.blocked:
-#                     valid_results.append(result)
-#                     business_listings.append(result)
-#                     if len(business_listings) == count:
-#                         break
-
-#             dynamic_batch_size = min(15, count - len(business_listings), len(batch) - len(valid_results))
-#             dynamic_batch_size = max(dynamic_batch_size, 1)
-
-#             current_index += len(batch)
-
-#         await browser.close()
-#         save_listing_to_mongo(business_listings)
-#         return business_listings
-
 def get_existing_and_new_listings(web_listings, count):
     from .mongo_client import get_mongo_collection
     collection = get_mongo_collection("business_listings")
@@ -196,22 +135,6 @@ def get_existing_and_new_listings(web_listings, count):
             to_scrape.append(listing)
 
     return existing_records, to_scrape
-
-
-
-
-# def get_existing_and_new_listings(web_listings, count):
-#     from .mongo_client import get_mongo_collection
-#     collection = get_mongo_collection("business_listings")
-
-#     urls_to_check = [l.url for l in web_listings[:count]]
-#     existing = list(collection.find({"url": {"$in": urls_to_check}}))
-#     existing_urls = {doc["url"] for doc in existing}
-
-#     existing_records = existing
-
-#     to_scrape = [l for l in web_listings if l.url not in existing_urls][:count - len(existing_records)]
-#     return existing_records, to_scrape
 
 
 async def extract_seller_details_batch(listings, headless, use_proxy, batch_size=15):
@@ -623,3 +546,52 @@ def export_business_data(request):
         if os.path.exists(tmpdir):
             shutil.rmtree(tmpdir, ignore_errors=True)
         raise
+
+
+def parse_financials(fin_str):
+    asking_price_match = re.search(r"Asking Price:\s*\$?([\d,]+)", fin_str)
+    cash_flow_match = re.search(r"Cash Flow:\s*\$?([\d,]+)", fin_str)
+
+    return {
+        "asking_price": asking_price_match.group(1) if asking_price_match else "",
+        "cash_flow": cash_flow_match.group(1) if cash_flow_match else ""
+    }
+
+def export_business_csv(request):
+    collection = get_mongo_collection("business_listings")
+    listings = list(collection.find())
+
+    fields = [
+        "name",
+        "url",
+        "seller_name",
+        "seller_contact",
+        "asking_price",
+        "cash_flow",
+        "description",
+    ]
+
+    csv_stream = io.StringIO()
+    writer = csv.DictWriter(csv_stream, fieldnames=fields)
+    writer.writeheader()
+
+    for listing in listings:
+        financials = listing.get("financials", "")
+        parsed_financials = parse_financials(financials)
+
+        row = {
+            "name": listing.get("name", ""),
+            "url": listing.get("url", ""),
+            "seller_name": listing.get("seller_name", ""),
+            "seller_contact": listing.get("seller_contact", ""),
+            "asking_price": parsed_financials["asking_price"],
+            "cash_flow": parsed_financials["cash_flow"],
+            "description": listing.get("description", ""),
+        }
+        writer.writerow(row)
+
+    response = HttpResponse(csv_stream.getvalue(), content_type="text/csv")
+    response["Content-Disposition"] = 'attachment; filename="business_listings.csv"'
+    return response
+
+

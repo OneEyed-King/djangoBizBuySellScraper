@@ -3,7 +3,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 import asyncio
 
-from scraper.playwright_scraper import export_business_data, scrape_with_play_wright, scrape_regions_with_play_wright
+from scraper.playwright_scraper import export_business_csv, export_business_data, scrape_with_play_wright, scrape_regions_with_play_wright
 from .scraper import extract_listing_details, scrape, get_listings
 from .serializers import BusinessListingSerializer, SellerDetailsSerializer, RegionSerializer
 
@@ -64,3 +64,11 @@ class ExportScrapedData(APIView):
 
         # Await the async export function
         return  export_business_data(request)  # Should be an HttpResponse
+    
+class ExportScrapedDataAsCSV(APIView):
+    def get(self, request):
+        # headless = request.GET.get('headless', 'false').lower() == 'true'
+        # use_proxy = request.GET.get('use_proxy', 'false').lower() == 'true'
+
+        # Await the async export function
+        return  export_business_csv(request)  # Should be an HttpResponse    

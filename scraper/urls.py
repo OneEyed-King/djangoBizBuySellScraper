@@ -1,4 +1,4 @@
-from .views import ExportScrapedData, PlayWrightSellerView, ScraperView, SellerView, PlayWrightRegionView
+from .views import ExportScrapedData, ExportScrapedDataAsCSV, PlayWrightSellerView, ScraperView, SellerView, PlayWrightRegionView
 from django.urls import path
 
 urlpatterns = [
@@ -7,4 +7,5 @@ urlpatterns = [
     path("play-listing-details/", PlayWrightSellerView.as_view(), name="scrape-seller-playwright"),
     path("play-regions/", PlayWrightRegionView.as_view(), name="scrape-regions-playwright"),
     path("export-listings/", ExportScrapedData.as_view(), name="export-scraped-data"),
+    path("export-csv/", ExportScrapedDataAsCSV.as_view(), name="export_business_csv"),
 ]
