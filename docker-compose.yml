@@ -1,0 +1,21 @@
+version: "3.9"
+services:
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=1  # Set to 0 in production
+      - ALLOWED_HOSTS=* # Update for production
+      - SECRET_KEY=changeme # Update for production
+      - DATABASE_URL=sqlite:///db.sqlite3 # Update for production if using a different database
+    depends_on:
+      - mongo
+  mongo:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+volumes:
+  mongo_data:

@@ -13,9 +13,23 @@ class BusinessListing(models.Model):
     description = models.TextField(blank=True, null=True)
     detailed_info = models.TextField(blank=True, null=True)
     blocked = models.BooleanField(default=False)
+    raw_html = models.TextField(blank=True, null=True)
 
     def __str__(self):
         return self.name or self.listing_id
 
 
 # Create your models here.
+class Regions(models.Model):
+    geoType = models.IntegerField()
+    regionId = models.CharField()
+    countryCode = models.CharField()
+    countryId = models.CharField() 
+    stateCode = models.CharField()
+    legacyRegionId = models.IntegerField() 
+    legacyRegionCode = models.CharField()
+    metroAreaId = models.IntegerField()
+    regionName = models.CharField()
+    regionNameSeo = models.CharField()
+    displayName = models.CharField() 
+    locationDetected = models.BooleanField()
